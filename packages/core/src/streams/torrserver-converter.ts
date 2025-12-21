@@ -58,10 +58,7 @@ class TorrServerConverter {
         );
 
         // Build TorrServer stream URL
-        const streamUrlObj = new URL(
-          `/stream/${encodeURIComponent(stream.filename || 'video.mkv')}`,
-          this.torrServerUrl
-        );
+        const streamUrlObj = new URL('/stream', this.torrServerUrl);
         streamUrlObj.searchParams.set('link', magnet);
         if (stream.torrent.fileIdx !== undefined) {
           streamUrlObj.searchParams.set(
