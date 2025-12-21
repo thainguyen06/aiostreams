@@ -2358,11 +2358,12 @@ function Content() {
               <HeadingWithPageControls heading="Size" />
               <div className="mb-4">
                 <p className="text-sm text-[--muted]">
-                  Set minimum and maximum size limits for movies, series, and anime series. You
-                  can set a global limit, and also choose to set specific limits
-                  for each resolution. For a given stream, only one set of size
-                  filters would be used. A resolution specific limit takes
-                  priority. Anime series limits take precedence over regular series limits.
+                  Set minimum and maximum size limits for movies, series, and
+                  anime series. You can set a global limit, and also choose to
+                  set specific limits for each resolution. For a given stream,
+                  only one set of size filters would be used. A resolution
+                  specific limit takes priority. Anime series limits take
+                  precedence over regular series limits.
                 </p>
               </div>
               <div className="space-y-4">

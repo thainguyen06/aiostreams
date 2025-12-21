@@ -15,10 +15,15 @@ import {
   PlaybackInfo,
   DebridError,
 } from './base.js';
-import { parseTorrentTitle, ParsedResult } from '@viren070/parse-torrent-title';
+import { parseTorrentTitle } from '@viren070/parse-torrent-title';
 import { fetch } from 'undici';
 
 const logger = createLogger('debrid:torrserver');
+
+// Constants for TorrServer operations
+const TORRSERVER_ADD_DELAY_MS = 2000; // Time to wait after adding a torrent
+const TORRSERVER_MAX_POLL_ATTEMPTS = 10; // Maximum number of status poll attempts
+const TORRSERVER_POLL_INTERVAL_MS = 11000; // Interval between status polls
 
 export const TorrServerConfig = z.object({
   torrserverUrl: z
@@ -62,9 +67,7 @@ export class TorrServerDebridService implements DebridService {
   readonly serviceName: ServiceId = 'torrserver';
 
   constructor(private readonly config: DebridServiceConfig) {
-    const parsedConfig = TorrServerConfig.parse(
-      JSON.parse(config.token)
-    );
+    const parsedConfig = TorrServerConfig.parse(JSON.parse(config.token));
 
     this.torrserverUrl = parsedConfig.torrserverUrl;
     this.torrserverAuth = parsedConfig.torrserverAuth;
@@ -114,9 +117,8 @@ export class TorrServerDebridService implements DebridService {
 
   public async listMagnets(): Promise<DebridDownload[]> {
     try {
-      const response = await this.torrserverRequest<TorrServerListResponse>(
-        '/torrents'
-      );
+      const response =
+        await this.torrserverRequest<TorrServerListResponse>('/torrents');
 
       return (
         response.torrents?.map((torrent) => ({
@@ -231,7 +233,9 @@ export class TorrServerDebridService implements DebridService {
       });
 
       // Wait a bit for TorrServer to process the torrent
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await new Promise((resolve) =>
+        setTimeout(resolve, TORRSERVER_ADD_DELAY_MS)
+      );
 
       // Get torrent info
       const torrents = await this.listMagnets();
@@ -301,7 +305,8 @@ export class TorrServerDebridService implements DebridService {
     }
 
     const { hash, metadata } = playbackInfo;
-    const cacheKey = `torrserver:${this.config.token}:${playbackInfo.hash}:${playbackInfo.metadata?.season}:${playbackInfo.metadata?.episode}:${playbackInfo.metadata?.absoluteEpisode}`;
+    const tokenHash = getSimpleTextHash(this.config.token);
+    const cacheKey = `torrserver:${tokenHash}:${playbackInfo.hash}:${playbackInfo.metadata?.season}:${playbackInfo.metadata?.episode}:${playbackInfo.metadata?.absoluteEpisode}`;
     const cachedLink =
       await TorrServerDebridService.playbackLinkCache.get(cacheKey);
 
@@ -337,9 +342,11 @@ export class TorrServerDebridService implements DebridService {
         return undefined;
       }
 
-      // Poll status when cacheAndPlay is true, max wait time is 110s
-      for (let i = 0; i < 10; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 11000));
+      // Poll status when cacheAndPlay is true
+      for (let i = 0; i < TORRSERVER_MAX_POLL_ATTEMPTS; i++) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, TORRSERVER_POLL_INTERVAL_MS)
+        );
         const list = await this.listMagnets();
         const magnetDownloadInList = list.find(
           (magnet) => magnet.hash === hash
@@ -424,7 +431,13 @@ export class TorrServerDebridService implements DebridService {
     }
 
     // Generate TorrServer stream URL
-    const streamUrl = `${this.torrserverUrl}/stream/${encodeURIComponent(selectedFile.name || '')}?link=${encodeURIComponent(magnet)}&index=${selectedFile.index || 0}`;
+    const streamUrlObj = new URL(
+      `/stream/${encodeURIComponent(selectedFile.name || '')}`,
+      this.torrserverUrl
+    );
+    streamUrlObj.searchParams.set('link', magnet);
+    streamUrlObj.searchParams.set('index', String(selectedFile.index || 0));
+    const streamUrl = streamUrlObj.toString();
 
     // Cache the result
     await TorrServerDebridService.playbackLinkCache.set(
