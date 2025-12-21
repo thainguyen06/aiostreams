@@ -100,7 +100,8 @@ class TorrServerConverter {
   private buildMagnetLink(infoHash: string, trackers: string[]): string {
     let magnet = `magnet:?xt=urn:btih:${infoHash}`;
     if (trackers && trackers.length > 0) {
-      magnet += `&tr=${trackers.join('&tr=')}`;
+      const encodedTrackers = trackers.map((t) => encodeURIComponent(t));
+      magnet += `&tr=${encodedTrackers.join('&tr=')}`;
     }
     return magnet;
   }
