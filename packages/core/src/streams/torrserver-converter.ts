@@ -39,6 +39,15 @@ class TorrServerConverter {
     }
   }
 
+  private addApiKeyToUrl(url: URL): void {
+    if (this.torrServerAuth && !this.torrServerAuth.includes(':')) {
+      const trimmedKey = this.torrServerAuth.trim();
+      if (trimmedKey !== '') {
+        url.searchParams.set('apikey', trimmedKey);
+      }
+    }
+  }
+
   public async convert(streams: ParsedStream[]): Promise<ParsedStream[]> {
     if (!this.hasTorrServer || !this.torrServerUrl) {
       return streams;
@@ -77,12 +86,7 @@ class TorrServerConverter {
         }
 
         // IMPORTANT: Append API Key to the playback URL if configured
-        if (this.torrServerAuth && !this.torrServerAuth.includes(':')) {
-             const trimmedKey = this.torrServerAuth.trim();
-             if (trimmedKey !== '') {
-                 streamUrlObj.searchParams.set('apikey', trimmedKey);
-             }
-        }
+        this.addApiKeyToUrl(streamUrlObj);
 
         const torrServerUrl = streamUrlObj.toString();
 
