@@ -73,6 +73,15 @@ export class TorrServerDebridService implements DebridService {
     this.torrserverAuth = parsedConfig.torrserverAuth;
   }
 
+  private addApiKeyToUrl(url: URL): void {
+    if (this.torrserverAuth && !this.torrserverAuth.includes(':')) {
+      const trimmedKey = this.torrserverAuth.trim();
+      if (trimmedKey !== '') {
+        url.searchParams.set('apikey', trimmedKey);
+      }
+    }
+  }
+
   private async torrserverRequest<T>(
     endpoint: string,
     options?: {
@@ -102,9 +111,8 @@ export class TorrServerDebridService implements DebridService {
 
       // Append API Key to URL if it's not Basic Auth style
       const fetchUrl = new URL(url);
-      if (this.torrserverAuth && !this.torrserverAuth.includes(':')) {
-          fetchUrl.searchParams.set('apikey', this.torrserverAuth);
-      }
+      this.addApiKeyToUrl(fetchUrl);
+
 
       const response = await fetch(fetchUrl.toString(), {
         method,
@@ -360,9 +368,7 @@ export class TorrServerDebridService implements DebridService {
     }
 
     // AUTH HANDLING FOR STREAM LINK
-    if (this.torrserverAuth && !this.torrserverAuth.includes(':')) {
-        streamUrlObj.searchParams.set('apikey', this.torrserverAuth);
-    }
+    this.addApiKeyToUrl(streamUrlObj);
 
     const streamUrl = streamUrlObj.toString();
 
