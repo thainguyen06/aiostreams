@@ -1,8 +1,11 @@
 import { ParsedStream, UserData } from '../db/schemas.js';
-import { createLogger, constants, ServiceId } from '../utils/index.js';
+import { createLogger, ServiceId } from '../utils/index.js'; // Removed 'constants'
 import { TorrServerConfig } from '../debrid/torrserver.js';
 
 const logger = createLogger('torrserver-converter');
+
+// Define constant locally to avoid missing export issues in main repo
+const TORRSERVER_SERVICE_ID = 'torrserver';
 
 class TorrServerConverter {
   private userData: UserData;
@@ -18,12 +21,12 @@ class TorrServerConverter {
   private initializeTorrServer() {
     // Check if TorrServer is configured in services
     const torrServerService = this.userData.services?.find(
-      (s) => s.id === constants.TORRSERVER_SERVICE && s.enabled !== false
+      (s) => s.id === TORRSERVER_SERVICE_ID && s.enabled !== false
     );
 
     if (torrServerService) {
       try {
-        const config = TorrServerConfig.parse(torrServerService.credentials);
+        const config = TorrServerConfig.parse(JSON.parse(torrServerService.credentials));
         this.torrServerUrl = config.torrserverUrl;
         this.torrServerAuth = config.torrserverAuth;
         this.hasTorrServer = true;
@@ -58,13 +61,24 @@ class TorrServerConverter {
         );
 
         // Build TorrServer stream URL
-        const streamUrlObj = new URL('/stream', this.torrServerUrl);
+        const streamUrlObj = new URL('/stream', this.torrServerUrl!); // Non-null assertion safe due to check above
         streamUrlObj.searchParams.set('link', magnet);
+        streamUrlObj.searchParams.set('play', '1'); // Auto play
+        streamUrlObj.searchParams.set('save', 'true'); 
+
         if (stream.torrent.fileIdx !== undefined) {
           streamUrlObj.searchParams.set(
             'index',
             String(stream.torrent.fileIdx)
           );
+        } else {
+             // If no index is provided in P2P stream, default to 1 (usually main file)
+             streamUrlObj.searchParams.set('index', '1');
+        }
+
+        // IMPORTANT: Append API Key to the playback URL if configured
+        if (this.torrServerAuth && !this.torrServerAuth.includes(':')) {
+             streamUrlObj.searchParams.set('apikey', this.torrServerAuth);
         }
 
         const torrServerUrl = streamUrlObj.toString();
@@ -75,9 +89,10 @@ class TorrServerConverter {
           ...stream,
           url: torrServerUrl,
           type: 'debrid' as const,
+          name: `[TS] ${stream.name || 'TorrServer'}`, // Add tag to name
           service: {
-            id: 'torrserver' as ServiceId,
-            cached: false, // TorrServer doesn't have instant availability
+            id: TORRSERVER_SERVICE_ID as ServiceId,
+            cached: true, // Mark as cached so AIOStreams treats it as instant play
           },
         };
       }
