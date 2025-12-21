@@ -431,10 +431,7 @@ export class TorrServerDebridService implements DebridService {
     }
 
     // Generate TorrServer stream URL
-    const streamUrlObj = new URL(
-      `/stream/${encodeURIComponent(selectedFile.name || '')}`,
-      this.torrserverUrl
-    );
+    const streamUrlObj = new URL('/stream', this.torrserverUrl);
     streamUrlObj.searchParams.set('link', magnet);
     streamUrlObj.searchParams.set('index', String(selectedFile.index || 0));
     const streamUrl = streamUrlObj.toString();
