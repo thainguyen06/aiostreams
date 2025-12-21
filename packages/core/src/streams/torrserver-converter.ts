@@ -26,7 +26,7 @@ class TorrServerConverter {
 
     if (torrServerService) {
       try {
-        const config = TorrServerConfig.parse(JSON.parse(torrServerService.credentials));
+        const config = TorrServerConfig.parse(torrServerService.credentials);
         this.torrServerUrl = config.torrserverUrl;
         this.torrServerAuth = config.torrserverAuth;
         this.hasTorrServer = true;
@@ -78,7 +78,10 @@ class TorrServerConverter {
 
         // IMPORTANT: Append API Key to the playback URL if configured
         if (this.torrServerAuth && !this.torrServerAuth.includes(':')) {
-             streamUrlObj.searchParams.set('apikey', this.torrServerAuth);
+             const trimmedKey = this.torrServerAuth.trim();
+             if (trimmedKey !== '') {
+                 streamUrlObj.searchParams.set('apikey', trimmedKey);
+             }
         }
 
         const torrServerUrl = streamUrlObj.toString();
@@ -89,7 +92,6 @@ class TorrServerConverter {
           ...stream,
           url: torrServerUrl,
           type: 'debrid' as const,
-          name: `[TS] ${stream.name || 'TorrServer'}`, // Add tag to name
           service: {
             id: TORRSERVER_SERVICE_ID as ServiceId,
             cached: true, // Mark as cached so AIOStreams treats it as instant play
