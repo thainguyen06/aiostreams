@@ -90,7 +90,10 @@ export class TorrServerDebridService implements DebridService {
 
     if (trimmedAuth.includes(':')) {
       // Basic auth credentials (username:password) - add to URL
-      const [username, password] = trimmedAuth.split(':', 2);
+      // Handle passwords that may contain colons by only splitting on the first colon
+      const colonIndex = trimmedAuth.indexOf(':');
+      const username = trimmedAuth.substring(0, colonIndex);
+      const password = trimmedAuth.substring(colonIndex + 1);
       url.username = username;
       url.password = password;
     } else {
