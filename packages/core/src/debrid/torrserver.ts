@@ -82,6 +82,23 @@ export class TorrServerDebridService implements DebridService {
     }
   }
 
+  private addAuthToStreamUrl(url: URL): void {
+    if (!this.torrserverAuth) return;
+
+    const trimmedAuth = this.torrserverAuth.trim();
+    if (trimmedAuth === '') return;
+
+    if (trimmedAuth.includes(':')) {
+      // Basic auth credentials (username:password) - add to URL
+      const [username, password] = trimmedAuth.split(':', 2);
+      url.username = username;
+      url.password = password;
+    } else {
+      // API key - add as query parameter
+      url.searchParams.set('apikey', trimmedAuth);
+    }
+  }
+
   private async torrserverRequest<T>(
     endpoint: string,
     options?: {
@@ -351,7 +368,7 @@ export class TorrServerDebridService implements DebridService {
 
     // Build Stream URL
     const streamUrlObj = new URL('/stream', this.torrserverUrl);
-    streamUrlObj.searchParams.set('link', magnet);
+    streamUrlObj.searchParams.set('link', hash); // Use hash instead of full magnet
     streamUrlObj.searchParams.set('play', '1'); // Force play
     streamUrlObj.searchParams.set('save', 'true'); // Save to DB
 
@@ -361,8 +378,8 @@ export class TorrServerDebridService implements DebridService {
         streamUrlObj.searchParams.set('index', '1'); // Default to 1 if selection failed
     }
 
-    // AUTH HANDLING FOR STREAM LINK
-    this.addApiKeyToUrl(streamUrlObj);
+    // AUTH HANDLING FOR STREAM LINK - supports both API keys and Basic auth
+    this.addAuthToStreamUrl(streamUrlObj);
 
     const streamUrl = streamUrlObj.toString();
 
