@@ -303,7 +303,7 @@ export class TorrServerDebridService implements DebridService {
       () => this._resolve(playbackInfo, filename, cacheAndPlay),
       {
         timeout: 30000,
-        ttl: 10000,
+        ttl: 30000,
       }
     );
     return result;
