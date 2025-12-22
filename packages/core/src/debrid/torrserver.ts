@@ -72,9 +72,8 @@ export class TorrServerDebridService implements DebridService {
       tokenData = JSON.parse(config.token);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      const tokenSnippet = config.token.substring(0, 20);
       throw new Error(
-        `Invalid TorrServer token JSON: ${errorMessage} (token starts with: ${tokenSnippet}...)`
+        `Invalid TorrServer token JSON: ${errorMessage}`
       );
     }
 
