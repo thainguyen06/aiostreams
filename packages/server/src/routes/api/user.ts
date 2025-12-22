@@ -34,15 +34,7 @@ router.head('/', async (req, res, next) => {
     const userExists = await UserRepository.checkUserExists(uuid);
 
     if (userExists) {
-      res.status(200).json(
-        createResponse({
-          success: true,
-          detail: 'User exists',
-          data: {
-            uuid,
-          },
-        })
-      );
+      res.sendStatus(200);
     } else {
       next(new APIError(constants.ErrorCode.USER_INVALID_DETAILS));
     }
