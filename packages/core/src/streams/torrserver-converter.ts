@@ -105,7 +105,7 @@ class TorrServerConverter {
           url: torrServerUrl,
           type: 'debrid' as const,
           service: {
-            id: TORRSERVER_SERVICE,
+            id: TORRSERVER_SERVICE as ServiceId,
             cached: true, // Mark as cached so AIOStreams treats it as instant play
           },
         };
