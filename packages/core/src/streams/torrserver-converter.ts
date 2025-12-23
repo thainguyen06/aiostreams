@@ -16,6 +16,7 @@ class TorrServerConverter {
   }
 
   private initializeTorrServer() {
+    // Check if TorrServer is configured in services
     const torrServerService = this.userData.services?.find(
       (s) => s.id === TORRSERVER_SERVICE && s.enabled !== false
     );
@@ -26,19 +27,32 @@ class TorrServerConverter {
         this.torrServerUrl = config.torrserverUrl;
         this.torrServerAuth = config.torrserverAuth;
         this.hasTorrServer = true;
-        
-        // --- LOG DEBUG: Kiểm tra xem có đọc được User/Pass không ---
-        if (this.torrServerAuth) {
-           logger.info(`TorrServer Auth detected: ${this.torrServerAuth.includes(':') ? 'Basic Auth (Hidden)' : 'API Key'}`);
-        } else {
-           logger.warn('TorrServer configured but NO Auth credentials found!');
-        }
-        
+        logger.info('TorrServer service configured for P2P stream conversion');
       } catch (error) {
         logger.error(
           `Failed to parse TorrServer credentials: ${error instanceof Error ? error.message : String(error)}`
         );
       }
+    }
+  }
+
+  private addAuthToStreamUrl(url: URL): void {
+    if (!this.torrServerAuth) return;
+
+    const trimmedAuth = this.torrServerAuth.trim();
+    if (trimmedAuth === '') return;
+
+    if (trimmedAuth.includes(':')) {
+      // Basic auth credentials (username:password) - add to URL
+      // Handle passwords that may contain colons by only splitting on the first colon
+      const colonIndex = trimmedAuth.indexOf(':');
+      const username = trimmedAuth.substring(0, colonIndex);
+      const password = trimmedAuth.substring(colonIndex + 1);
+      url.username = username;
+      url.password = password;
+    } else {
+      // API key - add as query parameter
+      url.searchParams.set('apikey', trimmedAuth);
     }
   }
 
@@ -50,6 +64,7 @@ class TorrServerConverter {
     let convertedCount = 0;
 
     const convertedStreams = streams.map((stream) => {
+      // Only convert P2P streams that don't already have a URL
       if (
         stream.type === 'p2p' &&
         stream.torrent?.infoHash &&
@@ -57,50 +72,41 @@ class TorrServerConverter {
         !stream.externalUrl
       ) {
         const infoHash = stream.torrent.infoHash;
-        const magnet = TorrServerConverter.buildMagnetLink(
+        const magnet = this.buildMagnetLink(
           infoHash,
           stream.torrent.sources || []
         );
 
-        // 1. Tạo URL cơ bản (chưa có auth)
-        const streamUrlObj = new URL('/stream', this.torrServerUrl!);
+        // Build TorrServer stream URL
+        const streamUrlObj = new URL('/stream', this.torrServerUrl!); // Non-null assertion safe due to check above
         streamUrlObj.searchParams.set('link', magnet);
-        streamUrlObj.searchParams.set('play', '1');
+        streamUrlObj.searchParams.set('play', '1'); // Auto play
         streamUrlObj.searchParams.set('save', 'true');
-        streamUrlObj.searchParams.set('index', stream.torrent.fileIdx !== undefined ? String(stream.torrent.fileIdx + 1) : '1');
 
-        // Chuyển sang string trước
-        let finalUrl = streamUrlObj.toString();
-
-        // 2. XỬ LÝ AUTH THỦ CÔNG (String Injection)
-        // Cách này đảm bảo auth luôn được chèn vào bất chấp môi trường
-        if (this.torrServerAuth) {
-            const trimmedAuth = this.torrServerAuth.trim();
-            
-            if (trimmedAuth.includes(':') && trimmedAuth !== '') {
-                // Basic Auth: Chèn user:pass sau "://"
-                // Ví dụ: https://domain.com -> https://user:pass@domain.com
-                const [user, ...passParts] = trimmedAuth.split(':');
-                const pass = passParts.join(':'); // Đề phòng pass cũng có dấu :
-                
-                // Chỉ thay thế occurrence đầu tiên của ://
-                finalUrl = finalUrl.replace('://', `://${user}:${pass}@`);
-            } else if (trimmedAuth !== '') {
-                // API Key: Thêm vào query param (sử dụng & hoặc ? tùy trường hợp)
-                const separator = finalUrl.includes('?') ? '&' : '?';
-                finalUrl = `${finalUrl}${separator}apikey=${trimmedAuth}`;
-            }
+        if (stream.torrent.fileIdx !== undefined) {
+          streamUrlObj.searchParams.set(
+            'index',
+            String(stream.torrent.fileIdx + 1)
+          );
+        } else {
+          // If no index is provided in P2P stream, default to 1 (usually main file)
+          streamUrlObj.searchParams.set('index', '1');
         }
+
+        // IMPORTANT: Append auth (API Key or Basic Auth) to the playback URL if configured
+        this.addAuthToStreamUrl(streamUrlObj);
+
+        const torrServerUrl = streamUrlObj.toString();
 
         convertedCount++;
 
         return {
           ...stream,
-          url: finalUrl, // Trả về URL string đã chèn auth
+          url: torrServerUrl,
           type: 'debrid' as const,
           service: {
             id: TORRSERVER_SERVICE as ServiceId,
-            cached: true,
+            cached: true, // Mark as cached so AIOStreams treats it as instant play
           },
         };
       }
@@ -109,13 +115,15 @@ class TorrServerConverter {
     });
 
     if (convertedCount > 0) {
-      logger.info(`Converted ${convertedCount} P2P streams to TorrServer`);
+      logger.info(
+        `Converted ${convertedCount} P2P streams to TorrServer playback URLs`
+      );
     }
 
     return convertedStreams;
   }
 
-  private static buildMagnetLink(infoHash: string, trackers: string[]): string {
+  private buildMagnetLink(infoHash: string, trackers: string[]): string {
     let magnet = `magnet:?xt=urn:btih:${infoHash}`;
     if (trackers && trackers.length > 0) {
       const encodedTrackers = trackers.map((t) => encodeURIComponent(t));
