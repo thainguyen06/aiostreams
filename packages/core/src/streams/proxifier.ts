@@ -112,7 +112,10 @@ class Proxifier {
               response: normaliseHeaders(stream.responseHeaders),
               request: normaliseHeaders(stream.requestHeaders),
             };
-            if (parsedUrl && parsedUrl.username && parsedUrl.password) {
+            // For TorrServer streams, keep credentials in URL (don't move to Authorization header)
+            // TorrServer requires HTTP basic auth in the URL format: http://user:pass@host/path
+            const isTorrServerStream = stream.service?.id === constants.TORRSERVER_SERVICE;
+            if (parsedUrl && parsedUrl.username && parsedUrl.password && !isTorrServerStream) {
               headers.request = {
                 ...headers.request,
                 authorization:
