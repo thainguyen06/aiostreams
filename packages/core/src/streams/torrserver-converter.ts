@@ -36,15 +36,6 @@ class TorrServerConverter {
     }
   }
 
-  private addApiKeyToUrl(url: URL): void {
-    if (this.torrServerAuth && !this.torrServerAuth.includes(':')) {
-      const trimmedKey = this.torrServerAuth.trim();
-      if (trimmedKey !== '') {
-        url.searchParams.set('apikey', trimmedKey);
-      }
-    }
-  }
-
   private addAuthToStreamUrl(url: URL): void {
     if (!this.torrServerAuth) return;
 
