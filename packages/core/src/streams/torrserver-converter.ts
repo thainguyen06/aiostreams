@@ -36,6 +36,10 @@ class TorrServerConverter {
     }
   }
 
+  /**
+   * Thêm thông tin xác thực vào URL stream.
+   * Hỗ trợ cả API Key (query param) và Basic Auth (user:pass).
+   */
   private addAuthToStreamUrl(url: URL): void {
     if (!this.torrServerAuth) return;
 
@@ -43,15 +47,18 @@ class TorrServerConverter {
     if (trimmedAuth === '') return;
 
     if (trimmedAuth.includes(':')) {
-      // Basic auth credentials (username:password) - add to URL
-      // Handle passwords that may contain colons by only splitting on the first colon
+      // Basic auth credentials (username:password) -> add to URL
+      // Logic này xử lý trường hợp password cũng chứa dấu ':' (chỉ cắt ở dấu : đầu tiên)
       const colonIndex = trimmedAuth.indexOf(':');
       const username = trimmedAuth.substring(0, colonIndex);
       const password = trimmedAuth.substring(colonIndex + 1);
+      
+      // Gán trực tiếp vào thuộc tính của URL object
+      // URL object sẽ tự động encode các ký tự đặc biệt nếu có
       url.username = username;
       url.password = password;
     } else {
-      // API key - add as query parameter
+      // API key -> add as query parameter
       url.searchParams.set('apikey', trimmedAuth);
     }
   }
@@ -78,7 +85,9 @@ class TorrServerConverter {
         );
 
         // Build TorrServer stream URL
-        const streamUrlObj = new URL('/stream', this.torrServerUrl!); // Non-null assertion safe due to check above
+        // Sử dụng URL constructor để xử lý đường dẫn an toàn
+        const streamUrlObj = new URL('/stream', this.torrServerUrl!); 
+        
         streamUrlObj.searchParams.set('link', magnet);
         streamUrlObj.searchParams.set('play', '1'); // Auto play
         streamUrlObj.searchParams.set('save', 'true');
@@ -93,7 +102,8 @@ class TorrServerConverter {
           streamUrlObj.searchParams.set('index', '1');
         }
 
-        // IMPORTANT: Append auth (API Key or Basic Auth) to the playback URL if configured
+        // --- QUAN TRỌNG: Thêm Auth vào URL ---
+        // Hàm này sẽ biến đổi URL thành dạng http://user:pass@host:port/stream...
         this.addAuthToStreamUrl(streamUrlObj);
 
         const torrServerUrl = streamUrlObj.toString();
