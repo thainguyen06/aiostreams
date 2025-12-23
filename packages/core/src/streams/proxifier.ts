@@ -1,136 +1,172 @@
 import { ParsedStream, UserData } from '../db/schemas.js';
-import { createLogger, ServiceId, TORRSERVER_SERVICE } from '../utils/index.js';
-import { TorrServerConfig } from '../debrid/torrserver.js';
+import { constants, createLogger, Env } from '../utils/index.js';
+import { createProxy } from '../proxy/index.js';
 
-const logger = createLogger('torrserver-converter');
+const logger = createLogger('proxy');
 
-class TorrServerConverter {
+class Proxifier {
   private userData: UserData;
-  private torrServerUrl?: string;
-  private torrServerAuth?: string;
-  private hasTorrServer: boolean = false;
 
   constructor(userData: UserData) {
     this.userData = userData;
-    this.initializeTorrServer();
   }
 
-  private initializeTorrServer() {
-    // Check if TorrServer is configured in services
-    const torrServerService = this.userData.services?.find(
-      (s) => s.id === TORRSERVER_SERVICE && s.enabled !== false
-    );
+  private shouldProxyStream(stream: ParsedStream): boolean {
+    const streamService = stream.service ? stream.service.id : 'none';
+    const proxy = this.userData.proxy;
+    if (!stream.url || !proxy?.enabled || !proxy.url) {
+      return false;
+    }
+    if (stream.proxied) {
+      return false;
+    }
+    let streamUrl: URL;
+    let proxyUrl: URL;
+    try {
+      streamUrl = new URL(stream.url);
+      proxyUrl = new URL(proxy.url);
+    } catch (error) {
+      logger.error(
+        `URL parsing failed somehow: stream: ${JSON.stringify(stream)}, proxy: ${JSON.stringify(proxy)}`
+      );
+      logger.error(error);
+      return false;
+    }
+    // do not proxy the stream if it is a nzbdav/altmount stream from a built-in addon and the proxy is not the built-in proxy (i.e. only allow using built-in proxy for these)
+    if (
+      stream.service &&
+      [constants.NZBDAV_SERVICE, constants.ALTMOUNT_SERVICE].includes(
+        stream.service.id
+      ) &&
+      (streamUrl.host == new URL(Env.INTERNAL_URL).host ||
+        streamUrl.host == new URL(Env.BASE_URL).host) &&
+      proxy.id !== 'builtin'
+    ) {
+      return false;
+    }
+    if (
+      streamUrl.host === proxyUrl.host &&
+      // check for proxy endpoint for stremthru, not needed for mediaflow as all mediaflow links are proxied
+      (proxy.id === 'mediaflow' || streamUrl.pathname.includes('/v0/proxy'))
+    ) {
+      stream.proxied = true;
+      return false;
+    }
 
-    if (torrServerService) {
-      try {
-        const config = TorrServerConfig.parse(torrServerService.credentials);
-        this.torrServerUrl = config.torrserverUrl;
-        this.torrServerAuth = config.torrserverAuth;
-        this.hasTorrServer = true;
-        logger.info('TorrServer service configured for P2P stream conversion');
-      } catch (error) {
-        logger.error(
-          `Failed to parse TorrServer credentials: ${error instanceof Error ? error.message : String(error)}`
-        );
+    const proxyAddon =
+      !proxy.proxiedAddons?.length ||
+      proxy.proxiedAddons.includes(stream.addon.preset.id);
+    const proxyService =
+      !proxy.proxiedServices?.length ||
+      proxy.proxiedServices.includes(streamService);
+
+    if (proxy.enabled && proxyAddon && proxyService) {
+      return true;
+    }
+
+    return false;
+  }
+
+  public async proxify(
+    streams: ParsedStream[]
+  ): Promise<{ streams: ParsedStream[]; error?: string }> {
+    if (!this.userData.proxy?.enabled) {
+      return { streams };
+    }
+
+    const streamsToProxy = streams
+      .map((stream, index) => ({ stream, index }))
+      .filter(({ stream }) => stream.url && this.shouldProxyStream(stream));
+
+    if (streamsToProxy.length === 0) {
+      return { streams };
+    }
+
+    const normaliseHeaders = (
+      headers: Record<string, string> | undefined
+    ): Record<string, string> | undefined => {
+      if (!headers) {
+        return undefined;
       }
-    }
-  }
-
-  private addAuthToStreamUrl(url: URL): void {
-    if (!this.torrServerAuth) return;
-
-    const trimmedAuth = this.torrServerAuth.trim();
-    if (trimmedAuth === '') return;
-
-    if (trimmedAuth.includes(':')) {
-      // Basic auth credentials (username:password) - add to URL
-      // Handle passwords that may contain colons by only splitting on the first colon
-      const colonIndex = trimmedAuth.indexOf(':');
-      const username = trimmedAuth.substring(0, colonIndex);
-      const password = trimmedAuth.substring(colonIndex + 1);
-      url.username = username;
-      url.password = password;
-    } else {
-      // API key - add as query parameter
-      url.searchParams.set('apikey', trimmedAuth);
-    }
-  }
-
-  public async convert(streams: ParsedStream[]): Promise<ParsedStream[]> {
-    if (!this.hasTorrServer || !this.torrServerUrl) {
-      return streams;
-    }
-
-    let convertedCount = 0;
-
-    const convertedStreams = streams.map((stream) => {
-      // Only convert P2P streams that don't already have a URL
-      if (
-        stream.type === 'p2p' &&
-        stream.torrent?.infoHash &&
-        !stream.url &&
-        !stream.externalUrl
-      ) {
-        const infoHash = stream.torrent.infoHash;
-        const magnet = TorrServerConverter.buildMagnetLink(
-          infoHash,
-          stream.torrent.sources || []
-        );
-
-        // Build TorrServer stream URL
-        const streamUrlObj = new URL('/stream', this.torrServerUrl!); // Non-null assertion safe due to check above
-        streamUrlObj.searchParams.set('link', magnet);
-        streamUrlObj.searchParams.set('play', '1'); // Auto play
-        streamUrlObj.searchParams.set('save', 'true');
-
-        if (stream.torrent.fileIdx !== undefined) {
-          streamUrlObj.searchParams.set(
-            'index',
-            String(stream.torrent.fileIdx + 1)
-          );
-        } else {
-          // If no index is provided in P2P stream, default to 1 (usually main file)
-          streamUrlObj.searchParams.set('index', '1');
-        }
-
-        // IMPORTANT: Append auth (API Key or Basic Auth) to the playback URL if configured
-        this.addAuthToStreamUrl(streamUrlObj);
-
-        const torrServerUrl = streamUrlObj.toString();
-
-        convertedCount++;
-
-        return {
-          ...stream,
-          url: torrServerUrl,
-          type: 'debrid' as const,
-          service: {
-            id: TORRSERVER_SERVICE as ServiceId,
-            cached: true, // Mark as cached so AIOStreams treats it as instant play
-          },
-        };
+      const normalisedHeaders: Record<string, string> = {};
+      for (const [key, value] of Object.entries(headers)) {
+        normalisedHeaders[key.trim().toLowerCase()] = value.trim();
       }
+      return normalisedHeaders;
+    };
+    logger.info(`Proxying ${streamsToProxy.length} streams`);
 
-      return stream;
+    const proxy = createProxy(this.userData.proxy);
+
+    const proxiedUrls = streamsToProxy.length
+      ? await proxy.generateUrls(
+          streamsToProxy.map(({ stream }) => {
+            let url: string = stream.url!;
+            let parsedUrl: URL | undefined;
+
+            try {
+              parsedUrl = new URL(url);
+            } catch {}
+
+            const headers = {
+              response: normaliseHeaders(stream.responseHeaders),
+              request: normaliseHeaders(stream.requestHeaders),
+            };
+            if (parsedUrl && parsedUrl.username && parsedUrl.password) {
+              headers.request = {
+                ...headers.request,
+                authorization:
+                  'Basic ' +
+                  Buffer.from(
+                    `${decodeURIComponent(
+                      parsedUrl.username
+                    )}:${decodeURIComponent(parsedUrl.password)}`
+                  ).toString('base64'),
+              };
+              parsedUrl.username = '';
+              parsedUrl.password = '';
+              url = parsedUrl.toString();
+            }
+            return {
+              url,
+              filename: stream.filename,
+              headers,
+            };
+          })
+        )
+      : [];
+
+    const count =
+      proxiedUrls && !('error' in proxiedUrls) ? proxiedUrls.length : 0;
+    logger.info(`Generated ${count} proxied URLs`);
+
+    const removeIndexes = new Set<number>();
+
+    streamsToProxy.forEach(({ stream, index }, i) => {
+      if (proxiedUrls && !('error' in proxiedUrls)) {
+        const proxiedUrl = proxiedUrls?.[i];
+        stream.url = proxiedUrl;
+        stream.proxied = true;
+        // proxy will handle request headers, can be removed here
+        stream.requestHeaders = undefined;
+      } else {
+        removeIndexes.add(index);
+      }
     });
 
-    if (convertedCount > 0) {
-      logger.info(
-        `Converted ${convertedCount} P2P streams to TorrServer playback URLs`
+    if (removeIndexes.size > 0) {
+      logger.warn(
+        `Failed to proxy ${removeIndexes.size} streams. Removing them from the list.`
       );
+      streams = streams.filter((_, index) => !removeIndexes.has(index));
     }
 
-    return convertedStreams;
-  }
-
-  private static buildMagnetLink(infoHash: string, trackers: string[]): string {
-    let magnet = `magnet:?xt=urn:btih:${infoHash}`;
-    if (trackers && trackers.length > 0) {
-      const encodedTrackers = trackers.map((t) => encodeURIComponent(t));
-      magnet += `&tr=${encodedTrackers.join('&tr=')}`;
-    }
-    return magnet;
+    return {
+      streams,
+      error:
+        proxiedUrls && 'error' in proxiedUrls ? proxiedUrls.error : undefined,
+    };
   }
 }
 
-export default TorrServerConverter;
+export default Proxifier;
