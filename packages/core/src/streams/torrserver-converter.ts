@@ -45,6 +45,26 @@ class TorrServerConverter {
     }
   }
 
+  private addAuthToStreamUrl(url: URL): void {
+    if (!this.torrServerAuth) return;
+
+    const trimmedAuth = this.torrServerAuth.trim();
+    if (trimmedAuth === '') return;
+
+    if (trimmedAuth.includes(':')) {
+      // Basic auth credentials (username:password) - add to URL
+      // Handle passwords that may contain colons by only splitting on the first colon
+      const colonIndex = trimmedAuth.indexOf(':');
+      const username = trimmedAuth.substring(0, colonIndex);
+      const password = trimmedAuth.substring(colonIndex + 1);
+      url.username = username;
+      url.password = password;
+    } else {
+      // API key - add as query parameter
+      url.searchParams.set('apikey', trimmedAuth);
+    }
+  }
+
   public async convert(streams: ParsedStream[]): Promise<ParsedStream[]> {
     if (!this.hasTorrServer || !this.torrServerUrl) {
       return streams;
@@ -82,8 +102,8 @@ class TorrServerConverter {
           streamUrlObj.searchParams.set('index', '1');
         }
 
-        // IMPORTANT: Append API Key to the playback URL if configured
-        this.addApiKeyToUrl(streamUrlObj);
+        // IMPORTANT: Append auth (API Key or Basic Auth) to the playback URL if configured
+        this.addAuthToStreamUrl(streamUrlObj);
 
         const torrServerUrl = streamUrlObj.toString();
 
