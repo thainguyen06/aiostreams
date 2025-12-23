@@ -3,10 +3,11 @@ import {
   Env,
   ServiceId,
   createLogger,
+  getSimpleTextHash,
   Cache,
   DistributedLock,
 } from '../utils/index.js';
-import { selectFileInTorrentOrNZB } from './utils.js';
+import { selectFileInTorrentOrNZB, Torrent } from './utils.js';
 import {
   DebridService,
   DebridServiceConfig,
@@ -45,6 +46,10 @@ interface TorrServerTorrent {
   }>;
 }
 
+interface TorrServerListResponse {
+  torrents: TorrServerTorrent[];
+}
+
 interface TorrServerAddResponse {
   hash: string;
 }
@@ -55,7 +60,6 @@ export class TorrServerDebridService implements DebridService {
   private static playbackLinkCache = Cache.getInstance<string, string | null>(
     'ts:link'
   );
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private static checkCache = Cache.getInstance<string, DebridDownload>(
     'ts:instant-check'
   );
@@ -80,13 +84,32 @@ export class TorrServerDebridService implements DebridService {
     this.torrserverAuth = parsedConfig.torrserverAuth;
   }
 
-  // Hàm này dùng cho internal API requests (fetch)
   private addApiKeyToUrl(url: URL): void {
     if (this.torrserverAuth && !this.torrserverAuth.includes(':')) {
       const trimmedKey = this.torrserverAuth.trim();
       if (trimmedKey !== '') {
         url.searchParams.set('apikey', trimmedKey);
       }
+    }
+  }
+
+  private addAuthToStreamUrl(url: URL): void {
+    if (!this.torrserverAuth) return;
+
+    const trimmedAuth = this.torrserverAuth.trim();
+    if (trimmedAuth === '') return;
+
+    if (trimmedAuth.includes(':')) {
+      // Basic auth credentials (username:password) - add to URL
+      // Handle passwords that may contain colons by only splitting on the first colon
+      const colonIndex = trimmedAuth.indexOf(':');
+      const username = trimmedAuth.substring(0, colonIndex);
+      const password = trimmedAuth.substring(colonIndex + 1);
+      url.username = username;
+      url.password = password;
+    } else {
+      // API key - add as query parameter
+      url.searchParams.set('apikey', trimmedAuth);
     }
   }
 
@@ -106,8 +129,8 @@ export class TorrServerDebridService implements DebridService {
       };
 
       // Add Auth headers for API control
-      // API call nội bộ dùng Header Authorization là chuẩn nhất (an toàn hơn URL)
       if (this.torrserverAuth && this.torrserverAuth.includes(':')) {
+        // Only set Basic auth header for username:password format
         headers['Authorization'] =
           `Basic ${Buffer.from(this.torrserverAuth).toString('base64')}`;
       }
@@ -184,7 +207,6 @@ export class TorrServerDebridService implements DebridService {
 
   public async checkMagnets(
     magnets: string[],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     sid?: string
   ): Promise<DebridDownload[]> {
     // TorrServer streams "instantly", so we can assume availability for valid magnets
@@ -267,7 +289,6 @@ export class TorrServerDebridService implements DebridService {
 
   public async generateTorrentLink(
     link: string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     clientIp?: string
   ): Promise<string> {
     return link;
@@ -292,7 +313,6 @@ export class TorrServerDebridService implements DebridService {
   private async _resolve(
     playbackInfo: PlaybackInfo,
     filename: string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     cacheAndPlay: boolean
   ): Promise<string | undefined> {
     if (playbackInfo.type === 'usenet') return undefined;
@@ -301,7 +321,8 @@ export class TorrServerDebridService implements DebridService {
     const cacheKey = `torrserver:resolve:${hash}:${filename}`;
 
     // Check Cache first
-    const cachedLink = await TorrServerDebridService.playbackLinkCache.get(cacheKey);
+    const cachedLink =
+      await TorrServerDebridService.playbackLinkCache.get(cacheKey);
     if (cachedLink) return cachedLink;
 
     let magnet = `magnet:?xt=urn:btih:${hash}`;
@@ -315,13 +336,18 @@ export class TorrServerDebridService implements DebridService {
     // Poll until files are populated
     for (let i = 0; i < TORRSERVER_MAX_POLL_ATTEMPTS; i++) {
       if (magnetDownload.files && magnetDownload.files.length > 0) break;
-      await new Promise((resolve) => setTimeout(resolve, TORRSERVER_POLL_INTERVAL_MS));
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, TORRSERVER_POLL_INTERVAL_MS)
+      );
       const list = await this.listMagnets();
       const found = list.find((t) => t.hash === hash);
       if (found) magnetDownload = found;
     }
 
     if (!magnetDownload.files?.length) {
+      // Fallback: If we can't get file list, we can't select file index.
+      // However, we can try to return a link without index and let TorrServer guess/play first file
       logger.warn(`No files found for ${hash}, trying blind stream`);
     }
 
@@ -339,7 +365,11 @@ export class TorrServerDebridService implements DebridService {
             year: parsed?.year,
           });
         } catch (err) {
-          logger.debug(`Failed to parse torrent title for file: ${file.name}`, err);
+          logger.debug(
+            `Failed to parse torrent title for file: ${file.name}`,
+            err
+          );
+          // Continue processing other files; treat this file as unparsed
           continue;
         }
       }
@@ -363,59 +393,29 @@ export class TorrServerDebridService implements DebridService {
       }
     );
 
-    // Build Stream URL Object
+    // Build Stream URL
     const streamUrlObj = new URL('/stream', this.torrserverUrl);
-    streamUrlObj.searchParams.set('link', hash);
-    streamUrlObj.searchParams.set('play', '1');
-    streamUrlObj.searchParams.set('save', 'true');
+    streamUrlObj.searchParams.set('link', hash); // Use hash instead of full magnet
+    streamUrlObj.searchParams.set('play', '1'); // Force play
+    streamUrlObj.searchParams.set('save', 'true'); // Save to DB
 
     if (selectedFile) {
       streamUrlObj.searchParams.set('index', String(selectedFile.index));
     } else {
-      streamUrlObj.searchParams.set('index', '0');
+      streamUrlObj.searchParams.set('index', '0'); // Default to 0 for 0-based indexing
     }
 
-    // --- BẮT ĐẦU PHẦN CHỈNH SỬA & DEBUG ---
-    
-    // 1. Log kiểm tra xem biến Auth có dữ liệu không
-    logger.info(`[DEBUG] TorrServer Auth Check: "${this.torrserverAuth}"`);
+    // AUTH HANDLING FOR STREAM LINK - supports both API keys and Basic auth
+    this.addAuthToStreamUrl(streamUrlObj);
 
-    let finalUrl = streamUrlObj.toString();
-
-    // 2. Chèn Auth bằng cách cắt ghép chuỗi thủ công (Manual String Splice)
-    // Cách này không phụ thuộc vào replace hay URL object
-    if (this.torrserverAuth && this.torrserverAuth.trim().length > 0) {
-        const auth = this.torrserverAuth.trim();
-        
-        if (auth.includes(':')) {
-            // Tách giao thức (http:// hoặc https://) ra khỏi phần còn lại
-            const protocolSplit = finalUrl.split('://');
-            if (protocolSplit.length === 2) {
-                const protocol = protocolSplit[0]; // http hoặc https
-                const restOfUrl = protocolSplit[1]; // domain.com/stream?...
-                
-                // Ghép lại: protocol + :// + user:pass + @ + rest
-                finalUrl = `${protocol}://${auth}@${restOfUrl}`;
-                
-                logger.info(`[DEBUG] Auth injected successfully into URL`);
-            }
-        } else {
-            // API Key
-             const separator = finalUrl.includes('?') ? '&' : '?';
-             finalUrl = `${finalUrl}${separator}apikey=${auth}`;
-        }
-    } else {
-        logger.warn(`[DEBUG] No Auth credentials found provided in config!`);
-    }
-
-    // --- KẾT THÚC PHẦN CHỈNH SỬA ---
+    const streamUrl = streamUrlObj.toString();
 
     await TorrServerDebridService.playbackLinkCache.set(
       cacheKey,
-      finalUrl,
+      streamUrl,
       Env.BUILTIN_DEBRID_PLAYBACK_LINK_CACHE_TTL
     );
 
-    return finalUrl;
+    return streamUrl;
   }
 }
