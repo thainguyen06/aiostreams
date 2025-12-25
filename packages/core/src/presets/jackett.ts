@@ -1,5 +1,5 @@
 import { Option, UserData } from '../db/index.js';
-import { Env, constants } from '../utils/index.js';
+import { Env, constants, TORRENT_DEBRID_SERVICES } from '../utils/index.js';
 import { StremThruPreset } from './stremthru.js';
 import { TorznabPreset } from './torznab.js';
 
@@ -36,7 +36,7 @@ export class JackettPreset extends TorznabPreset {
         type: 'multi-select',
         required: false,
         showInSimpleMode: false,
-        options: StremThruPreset.supportedServices.map((service) => ({
+        options: TORRENT_DEBRID_SERVICES.map((service) => ({
           value: service,
           label: constants.SERVICE_DETAILS[service].name,
         })),
@@ -120,7 +120,7 @@ export class JackettPreset extends TorznabPreset {
       URL: `${Env.INTERNAL_URL}/builtins/torznab`,
       TIMEOUT: Env.BUILTIN_DEFAULT_JACKETT_TIMEOUT || Env.DEFAULT_TIMEOUT,
       USER_AGENT: Env.DEFAULT_USER_AGENT,
-      SUPPORTED_SERVICES: StremThruPreset.supportedServices,
+      SUPPORTED_SERVICES: [...TORRENT_DEBRID_SERVICES],
       DESCRIPTION: 'An addon to get debrid results from a Jackett instance.',
       OPTIONS: options,
       SUPPORTED_STREAM_TYPES: [constants.DEBRID_STREAM_TYPE],
