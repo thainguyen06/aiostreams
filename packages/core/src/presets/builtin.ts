@@ -131,11 +131,23 @@ export class BuiltinAddonPreset extends Preset {
           })
         ),
     };
+    const torrserverSpecialCase: Partial<
+      Record<ServiceId, (credentials: any) => any>
+    > = {
+      [constants.TORRSERVER_SERVICE]: (credentials: any) =>
+        toUrlSafeBase64(
+          JSON.stringify({
+            torrserverUrl: credentials.torrserverUrl,
+            torrserverAuth: credentials.torrserverAuth,
+          })
+        ),
+    };
     return super.getServiceCredential(serviceId, userData, {
       ...stremthruSpecialCases,
       ...specialCases,
       ...nzbDavSpecialCase,
       ...altmountSpecialCase,
+      ...torrserverSpecialCase,
     });
   }
 
