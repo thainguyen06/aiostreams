@@ -152,8 +152,17 @@ export class TorrServerDebridService implements DebridService {
 
       return (await response.json()) as T;
     } catch (error: any) {
+      // Extract actual HTTP status code from error message if available
+      let statusCode = 500;
+      if (error?.message) {
+        const statusMatch = error.message.match(/HTTP (\d+):/);
+        if (statusMatch) {
+          statusCode = parseInt(statusMatch[1], 10);
+        }
+      }
+      
       throw new DebridError('TorrServer request failed', {
-        statusCode: error?.statusCode || 500,
+        statusCode: error?.statusCode || statusCode,
         statusText: error?.message || 'Unknown error',
         code: 'INTERNAL_SERVER_ERROR',
         headers: {},
@@ -165,8 +174,31 @@ export class TorrServerDebridService implements DebridService {
 
   public async listMagnets(): Promise<DebridDownload[]> {
     try {
-      // POST usually works better for /torrents/list in some versions, but GET /torrents is standard
-      const response = await this.torrserverRequest<any>('/torrents');
+      // Try GET /torrents first (standard endpoint)
+      let response: any;
+      try {
+        response = await this.torrserverRequest<any>('/torrents');
+      } catch (error: any) {
+        // If GET /torrents fails with 404, try POST /torrents/list as fallback
+        const is404 = error?.statusCode === 404 || 
+                       error?.statusText?.includes('404') ||
+                       error?.cause?.message?.includes('404');
+        
+        if (is404) {
+          logger.debug('GET /torrents returned 404, trying POST /torrents/list as fallback');
+          try {
+            response = await this.torrserverRequest<any>('/torrents/list', {
+              method: 'POST',
+              body: {},
+            });
+          } catch (fallbackError: any) {
+            logger.error('Both GET /torrents and POST /torrents/list failed. Check TorrServer URL and version.');
+            throw fallbackError;
+          }
+        } else {
+          throw error;
+        }
+      }
 
       // Handle response structure which might vary slightly
       const torrents = Array.isArray(response)

@@ -154,11 +154,16 @@ router.put('/', async (req, res, next) => {
     uuid: req.uuid || req.body?.uuid,
   };
   if (!uuid || !password || !config) {
+    const missing = [];
+    if (!uuid) missing.push('uuid');
+    if (!password) missing.push('password');
+    if (!config) missing.push('config');
+    logger.error(`Missing required fields for PUT /user: ${missing.join(', ')}. req.uuid=${req.uuid}, req.body.uuid=${req.body?.uuid}`);
     next(
       new APIError(
         constants.ErrorCode.MISSING_REQUIRED_FIELDS,
         undefined,
-        'uuid, password and config are required'
+        `uuid, password and config are required (missing: ${missing.join(', ')})`
       )
     );
     return;
