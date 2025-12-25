@@ -36,7 +36,7 @@ export class EasynewsService implements DebridService {
 
   constructor(private readonly config: DebridServiceConfig) {
     const auth = EasynewsAuthSchema.parse(
-      JSON.parse(Buffer.from(config.token, 'base64').toString())
+      JSON.parse(fromUrlSafeBase64(config.token))
     );
     this.auth = auth;
   }
