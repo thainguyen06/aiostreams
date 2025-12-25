@@ -262,6 +262,18 @@ export abstract class Preset {
         password: serviceCredentials.password,
       };
     }
+    // Handle TorrServer - URL is required, auth is optional
+    if (serviceId === constants.TORRSERVER_SERVICE) {
+      if (!serviceCredentials.torrserverUrl) {
+        throw new Error(
+          `Missing TorrServer URL for ${serviceId}. Please add a TorrServer URL.`
+        );
+      }
+      return {
+        torrserverUrl: serviceCredentials.torrserverUrl,
+        torrserverAuth: serviceCredentials.torrserverAuth,
+      };
+    }
     // Default case - API key
     const { apiKey } = serviceCredentials;
     if (!apiKey) {
