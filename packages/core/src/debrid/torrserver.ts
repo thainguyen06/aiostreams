@@ -6,6 +6,7 @@ import {
   getSimpleTextHash,
   Cache,
   DistributedLock,
+  fromUrlSafeBase64,
 } from '../utils/index.js';
 import { selectFileInTorrentOrNZB, Torrent } from './utils.js';
 import {
@@ -70,7 +71,9 @@ export class TorrServerDebridService implements DebridService {
   constructor(private readonly config: DebridServiceConfig) {
     let tokenData: any;
     try {
-      tokenData = JSON.parse(config.token);
+      // Decode base64-encoded token first, then parse as JSON
+      const decodedToken = fromUrlSafeBase64(config.token);
+      tokenData = JSON.parse(decodedToken);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       throw new Error(`Invalid TorrServer token JSON: ${errorMessage}`);

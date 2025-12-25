@@ -151,7 +151,7 @@ router.post('/', async (req, res, next) => {
 router.put('/', async (req, res, next) => {
   const { uuid, password, config } = {
     ...req.body,
-    uuid: req.uuid || req.body.uuid,
+    uuid: req.uuid || req.body?.uuid,
   };
   if (!uuid || !password || !config) {
     next(
@@ -190,7 +190,7 @@ router.put('/', async (req, res, next) => {
 router.delete('/', async (req, res, next) => {
   const { uuid, password } = {
     ...req.body,
-    uuid: req.uuid || req.body.uuid,
+    uuid: req.uuid || req.body?.uuid,
   };
   if (!uuid || !password) {
     next(new APIError(constants.ErrorCode.MISSING_REQUIRED_FIELDS));

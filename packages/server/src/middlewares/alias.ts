@@ -26,7 +26,7 @@ export function resolveUuidAliasForUserApi(
     if (typeof value === 'string' && !uuidRegex.test(value)) {
       const configuration = Env.ALIASED_CONFIGURATIONS.get(value);
       if (configuration?.uuid) {
-        req.uuid = configuration.uuid;
+        req.uuid = configuration?.uuid;
       }
     }
   }
