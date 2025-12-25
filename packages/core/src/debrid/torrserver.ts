@@ -27,6 +27,17 @@ const TORRSERVER_MAX_POLL_ATTEMPTS = 15;
 const TORRSERVER_POLL_INTERVAL_MS = 1000; // Poll faster for responsiveness
 const TORRSERVER_RESOLVE_LOCK_TIMEOUT_MS = 30000; // Timeout and TTL for resolve lock
 
+/**
+ * Helper function to check if an error is a 404 Not Found error
+ */
+function isNotFoundError(error: any): boolean {
+  return (
+    error?.statusCode === 404 ||
+    error?.statusText?.includes('404') ||
+    error?.cause?.message?.includes('404')
+  );
+}
+
 export const TorrServerConfig = z.object({
   torrserverUrl: z
     .string()
@@ -180,11 +191,7 @@ export class TorrServerDebridService implements DebridService {
         response = await this.torrserverRequest<any>('/torrents');
       } catch (error: any) {
         // If GET /torrents fails with 404, try POST /torrents/list as fallback
-        const is404 = error?.statusCode === 404 || 
-                       error?.statusText?.includes('404') ||
-                       error?.cause?.message?.includes('404');
-        
-        if (is404) {
+        if (isNotFoundError(error)) {
           logger.debug('GET /torrents returned 404, trying POST /torrents/list as fallback');
           try {
             response = await this.torrserverRequest<any>('/torrents/list', {

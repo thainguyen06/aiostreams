@@ -198,7 +198,17 @@ router.delete('/', async (req, res, next) => {
     uuid: req.uuid || req.body?.uuid,
   };
   if (!uuid || !password) {
-    next(new APIError(constants.ErrorCode.MISSING_REQUIRED_FIELDS));
+    const missing = [];
+    if (!uuid) missing.push('uuid');
+    if (!password) missing.push('password');
+    logger.error(`Missing required fields for DELETE /user: ${missing.join(', ')}. req.uuid=${req.uuid}, req.body.uuid=${req.body?.uuid}`);
+    next(
+      new APIError(
+        constants.ErrorCode.MISSING_REQUIRED_FIELDS,
+        undefined,
+        `uuid and password are required (missing: ${missing.join(', ')})`
+      )
+    );
     return;
   }
   try {
