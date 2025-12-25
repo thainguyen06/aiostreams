@@ -251,8 +251,24 @@ export const BUILTIN_SUPPORTED_SERVICES = [
   TORRSERVER_SERVICE,
 ] as const;
 
+// Services that support torrent-based addons (Jackett, Prowlarr, etc.)
+// Includes StremThru services + TorrServer
+export const TORRENT_DEBRID_SERVICES = [
+  REALDEBRID_SERVICE,
+  DEBRIDLINK_SERVICE,
+  PREMIUMIZE_SERVICE,
+  ALLDEBRID_SERVICE,
+  TORBOX_SERVICE,
+  EASYDEBRID_SERVICE,
+  DEBRIDER_SERVICE,
+  PIKPAK_SERVICE,
+  OFFCLOUD_SERVICE,
+  TORRSERVER_SERVICE,
+] as const;
+
 export type ServiceId = (typeof SERVICES)[number];
 export type BuiltinServiceId = (typeof BUILTIN_SUPPORTED_SERVICES)[number];
+export type TorrentDebridServiceId = (typeof TORRENT_DEBRID_SERVICES)[number];
 
 export const MEDIAFLOW_SERVICE = 'mediaflow' as const;
 export const STREMTHRU_SERVICE = 'stremthru' as const;
